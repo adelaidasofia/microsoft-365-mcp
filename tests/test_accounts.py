@@ -101,6 +101,16 @@ def test_scopes_exclude_msal_reserved():
     assert not {"openid", "profile", "offline_access"} & set(accounts.SCOPES)
 
 
+def test_scopes_least_privilege_onedrive():
+    # OneDrive tools hit only /me/drive/* → Files.ReadWrite (own drive) is
+    # sufficient. Files.ReadWrite.All reaches every file the user can access
+    # (org/SharePoint) and is over-broad; it must never creep back in. Keeping
+    # the requested scope minimal is a SEPARATE invariant from "scopes match
+    # across surfaces" — this test locks it (MYC-2578).
+    assert "Files.ReadWrite" in accounts.SCOPES
+    assert "Files.ReadWrite.All" not in accounts.SCOPES
+
+
 def test_windows_defaults_to_file_backend(monkeypatch, tmp_path):
     # Windows Credential Manager can't hold the MSAL blob → must use the file.
     monkeypatch.delenv(accounts.TOKEN_FILE_ENV, raising=False)
