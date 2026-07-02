@@ -99,3 +99,18 @@ def test_complete_device_flow_without_pending_raises(store, monkeypatch):
 def test_scopes_exclude_msal_reserved():
     # MSAL errors if openid/profile/offline_access are passed explicitly.
     assert not {"openid", "profile", "offline_access"} & set(accounts.SCOPES)
+
+
+def test_windows_defaults_to_file_backend(monkeypatch, tmp_path):
+    # Windows Credential Manager can't hold the MSAL blob → must use the file.
+    monkeypatch.delenv(accounts.TOKEN_FILE_ENV, raising=False)
+    monkeypatch.setattr(accounts, "DEFAULT_TOKEN_FILE", tmp_path / "token_cache.json")
+    monkeypatch.setattr(accounts.os, "name", "nt")
+    assert accounts._token_file() == tmp_path / "token_cache.json"
+
+
+def test_posix_defaults_to_keyring(monkeypatch, tmp_path):
+    monkeypatch.delenv(accounts.TOKEN_FILE_ENV, raising=False)
+    monkeypatch.setattr(accounts, "DEFAULT_TOKEN_FILE", tmp_path / "nope.json")  # absent
+    monkeypatch.setattr(accounts.os, "name", "posix")
+    assert accounts._token_file() is None  # → keyring backend

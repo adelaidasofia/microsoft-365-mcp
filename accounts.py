@@ -103,6 +103,12 @@ def _token_file() -> "Path | None":
         return Path(env).expanduser()
     if DEFAULT_TOKEN_FILE.exists():
         return DEFAULT_TOKEN_FILE
+    # Windows Credential Manager caps a credential blob at ~2.5 KB — smaller
+    # than the MSAL cache once one account is signed in — so default to the
+    # file backend there deterministically, rather than relying on a keyring
+    # write to fail and fall back mid-session (which would re-prompt login).
+    if os.name == "nt":
+        return DEFAULT_TOKEN_FILE
     return None
 
 
