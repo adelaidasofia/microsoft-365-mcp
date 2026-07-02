@@ -1,0 +1,15 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "microsoft-365-mcp",
+  "owner": {
+    "name": "Mycelium AI",
+    "url": "https://myceliumai.co"
+  },
+  "plugins": [
+    {
+      "name": "microsoft-365-mcp",
+      "source": "./",
+      "description": "Multi-account, token-efficient MCP for Outlook mail + Calendar + OneDrive via Microsoft Graph. OAuth multiple accounts (work + personal), compact list/search shapes with opt-in bodies, OS-keychain-backed tokens with a file fallback for Windows. 33 tools across account management, Outlook mail, Calendar, and OneDrive."
+    }
+  ]
+}

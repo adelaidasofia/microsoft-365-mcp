@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.adelaidasofia/microsoft-365-mcp",
+  "title": "FastMCP server exposing Microsoft 365 (Outlook mail, Calendar, OneDrive) tools v",
+  "description": "FastMCP server exposing Microsoft 365 (Outlook mail, Calendar, OneDrive) tools via Microsoft Graph.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/adelaidasofia/microsoft-365-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/adelaidasofia/microsoft-365-mcp/releases/download/v0.1.0/microsoft-365-mcp.mcpb",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "fileSha256": "5d5a36593ca60547cc7c2e41a23402b095f51f75acab9d3f0b5486b0bea35c6a",
+      "environmentVariables": [
+        {
+          "name": "M365_CLIENT_ID",
+          "description": "From entra.microsoft.com > App registrations (see SETUP.md)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "M365_TENANT_ID",
+          "description": "'common' (default), 'consumers' (personal only), 'organizations', or a tenant GUID",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

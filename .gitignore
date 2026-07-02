@@ -1,0 +1,10 @@
+client_config.json
+accounts_index.json
+token_cache.json
+__pycache__/
+*.pyc
+.env
+*.log
+*.log.jsonl
+# Generated MCP bundle (uploaded to GitHub Releases, not tracked in git)
+*.mcpb
