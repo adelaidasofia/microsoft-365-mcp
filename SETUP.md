@@ -39,7 +39,7 @@ A browser opens. Sign in with **your** Microsoft account and accept the permissi
 
 If your work account shows **"Need admin approval"**, your company's tenant requires an admin to consent to the app. This is expected on locked-down corporate tenants and it is a one-time, standard request. Send IT:
 
-> Please grant admin consent (or user-consent allowlisting) for the app with **Application (client) ID `<the ID you received>`** for these **delegated** Microsoft Graph permissions: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `Files.ReadWrite.All`, `User.Read`, `offline_access`. The app is a public desktop client; users each sign in with their own account and tokens stay on their own machine.
+> Please grant admin consent (or user-consent allowlisting) for the app with **Application (client) ID `<the ID you received>`** for these **delegated** Microsoft Graph permissions: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `Files.ReadWrite`, `User.Read`, `offline_access`. The app is a public desktop client; users each sign in with their own account and tokens stay on their own machine.
 
 Once IT approves (Enterprise applications → the app → Permissions → Grant admin consent), re-run `m365_account_add`.
 
@@ -82,7 +82,7 @@ Still in the app: **Authentication → Advanced settings → Allow public client
 - `Mail.ReadWrite`
 - `Mail.Send`
 - `Calendars.ReadWrite`
-- `Files.ReadWrite.All`
+- `Files.ReadWrite`
 - `User.Read` (usually present already)
 - `offline_access` (under "OpenId permissions" — this is what yields refresh tokens)
 

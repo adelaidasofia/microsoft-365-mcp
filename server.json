@@ -16,7 +16,7 @@
       "transport": {
         "type": "stdio"
       },
-      "fileSha256": "254b2bb5d132c208028566150a882b63d2428e3b5ec7b89653a490b1485b3394",
+      "fileSha256": "73e165eaf3206c03757e9aaaa8890af366a7045947c5796fb75b4119ceb9de70",
       "environmentVariables": [
         {
           "name": "M365_CLIENT_ID",

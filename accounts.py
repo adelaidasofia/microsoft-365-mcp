@@ -47,7 +47,12 @@ SCOPES = [
     "Mail.ReadWrite",
     "Mail.Send",
     "Calendars.ReadWrite",
-    "Files.ReadWrite.All",
+    # OneDrive tools touch ONLY /me/drive/* (the user's own drive) — never
+    # /sites/, sharedWithMe, or /drives/{id}. Files.ReadWrite (own drive) covers
+    # 100% of that surface; Files.ReadWrite.All (all files the user can reach,
+    # incl. org/SharePoint) is over-broad and draws corporate admin-consent
+    # scrutiny. Least privilege — keep it narrow. See test_scopes_least_privilege.
+    "Files.ReadWrite",
     "User.Read",
 ]
 

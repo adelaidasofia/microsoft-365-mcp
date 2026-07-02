@@ -1,0 +1,9 @@
+# Files excluded from the packed .mcpb (runtime bundle uploaded to Releases).
+# CI/dev-only paths never execute from the bundle — keep it minimal + make the
+# composition reproducible across mcpb versions (mcpb defaults have drifted:
+# the v0.1.0 asset was built by an older mcpb that dropped .github/ implicitly).
+.github/
+.git
+.gitignore
+*.mcpb
+.DS_Store
