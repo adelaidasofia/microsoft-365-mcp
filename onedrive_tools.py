@@ -147,10 +147,11 @@ def upload(
         while offset < size:
             chunk = f.read(_CHUNK)
             end = offset + len(chunk) - 1
-            # The pre-authenticated uploadUrl needs no bearer token; pass it
-            # through graph.request for uniform retry/error handling.
+            # The uploadUrl is pre-authenticated; Graph rejects a bearer token
+            # on it (401). auth=False sends no Authorization header while still
+            # using graph.request for uniform retry/error handling.
             result = graph.request(
-                "PUT", upload_url, account=account, data=chunk,
+                "PUT", upload_url, account=account, data=chunk, auth=False,
                 headers={
                     "Content-Range": f"bytes {offset}-{end}/{size}",
                     "Content-Type": "application/octet-stream",

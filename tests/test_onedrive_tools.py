@@ -98,6 +98,10 @@ def test_upload_large_file_uses_session_chunks(fake_graph, tmp_path, monkeypatch
     assert out["id"] == "IT1"
     ranges = [c["headers"]["Content-Range"] for c in fake_graph.calls[1:]]
     assert ranges == ["bytes 0-3/6", "bytes 4-5/6"]
+    # Graph rejects a bearer token on the pre-authenticated uploadUrl — the
+    # chunk PUTs MUST pass auth=False (createUploadSession POST stays authed).
+    assert fake_graph.calls[0]["auth"] is True  # createUploadSession
+    assert all(c["auth"] is False for c in fake_graph.calls[1:])  # chunk PUTs
 
 
 def test_upload_missing_file_raises():

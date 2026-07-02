@@ -44,6 +44,17 @@ def test_list_events_uses_calendar_view(fake_graph):
     assert call["params"]["startDateTime"].startswith("2026-07-03")
 
 
+def test_list_events_query_filters_client_side(fake_graph):
+    # calendarView rejects contains() server-side; query must NOT reach $filter.
+    fake_graph.queue("GET", "/me/calendarView", {"value": [
+        EVENT,
+        {**EVENT, "id": "EV2", "subject": "Dentist"},
+    ]})
+    out = calendar_tools.list_events(query="sync")
+    assert [e["id"] for e in out] == ["EV1"]  # only the title match survives
+    assert "$filter" not in fake_graph.calls[0]["params"]
+
+
 def test_list_events_verbose_includes_attendees(fake_graph):
     fake_graph.queue("GET", "/me/calendarView", {"value": [EVENT]})
     out = calendar_tools.list_events(verbose=True)

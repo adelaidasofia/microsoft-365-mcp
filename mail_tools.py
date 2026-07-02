@@ -96,17 +96,20 @@ def read(
         return {**_summary(msg), "body": (msg.get("body") or {}).get("content", "")}
 
     conv_id = msg.get("conversationId")
+    # Graph rejects $filter (conversationId) + $orderby (receivedDateTime) as
+    # "too complex" when the orderby property isn't the filter property. Fetch
+    # the conversation, sort oldest-first client-side.
     thread = graph.get_all(
         "/me/messages",
         account=account,
         params={
             "$select": _SELECT + ",body",
             "$filter": f"conversationId eq '{conv_id}'",
-            "$orderby": "receivedDateTime",
         },
         limit=50,
         headers=headers,
     )
+    thread.sort(key=lambda m: m.get("receivedDateTime") or "")
     messages = [
         {**_summary(m), "body": (m.get("body") or {}).get("content", "")} for m in thread
     ]

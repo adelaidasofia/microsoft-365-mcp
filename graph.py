@@ -68,13 +68,18 @@ def request(
     headers: dict | None = None,
     data: bytes | None = None,
     raw: bool = False,
+    auth: bool = True,
 ) -> Any:
     """Make one Graph call. `path` is relative ('/me/messages') or absolute
     (a @odata.nextLink). Returns parsed JSON ({} on 204), or bytes when raw=True.
     Retries once on 429/503 honoring Retry-After.
+
+    auth=False sends NO Authorization header. Required for OneDrive upload-session
+    chunk PUTs: the uploadUrl is pre-authenticated and Graph rejects (401) a
+    bearer token on it (per the large-file-upload spec).
     """
     url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
-    hdrs = {"Authorization": f"Bearer {get_token(account)}"}
+    hdrs = {"Authorization": f"Bearer {get_token(account)}"} if auth else {}
     if headers:
         hdrs.update(headers)
 

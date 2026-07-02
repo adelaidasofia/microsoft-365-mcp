@@ -78,6 +78,9 @@ def test_read_full_thread_filters_by_conversation(fake_graph):
     assert out["message_count"] == 2
     assert [m["body"] for m in out["messages"]] == ["one", "two"]
     assert "conversationId eq 'CONV1'" in fake_graph.calls[1]["params"]["$filter"]
+    # Graph rejects conversationId-filter + receivedDateTime-orderby together;
+    # sort must happen client-side, not via $orderby.
+    assert "$orderby" not in fake_graph.calls[1]["params"]
 
 
 def test_send_payload_shape(fake_graph):

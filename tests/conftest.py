@@ -27,11 +27,11 @@ class FakeGraph:
         self._responses.append((method.upper(), path_prefix, response))
 
     def request(self, method, path, account=None, params=None, json_body=None,
-                headers=None, data=None, raw=False):
+                headers=None, data=None, raw=False, auth=True):
         call = {
             "method": method.upper(), "path": path, "account": account,
             "params": params, "json_body": json_body, "headers": headers,
-            "data": data, "raw": raw,
+            "data": data, "raw": raw, "auth": auth,
         }
         self.calls.append(call)
         for i, (m, prefix, resp) in enumerate(self._responses):

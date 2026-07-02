@@ -123,20 +123,25 @@ def list_events(
             datetime.fromisoformat(t_min.replace("Z", "+00:00")) + timedelta(days=days_ahead)
         ).isoformat()
 
+    cap = min(max(max_results, 1), 100)
+    # calendarView rejects contains()/$filter on subject; over-fetch the window
+    # when a query is present and match the title client-side (case-insensitive).
+    fetch = 100 if query else cap
     params: dict[str, Any] = {
         "startDateTime": t_min,
         "endDateTime": t_max,
         "$select": _SELECT,
         "$orderby": "start/dateTime",
-        "$top": min(max(max_results, 1), 100),
+        "$top": fetch,
     }
-    if query:
-        params["$filter"] = f"contains(subject,'{query}')"
 
     events = graph.get_all(
         f"{_events_base(calendar_id)}/calendarView", account=account,
-        params=params, limit=min(max(max_results, 1), 100),
+        params=params, limit=fetch,
     )
+    if query:
+        q = query.lower()
+        events = [e for e in events if q in (e.get("subject") or "").lower()][:cap]
     return [_summarize_event(e, verbose=verbose) for e in events]
 
 
