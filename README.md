@@ -69,6 +69,23 @@ deliberate v2 scope (`Sites.Read.All`, `Chat.Read`).
 
 ## Install
 
+**Fastest path — one script, no manual wiring:**
+
+```bash
+git clone https://github.com/adelaidasofia/microsoft-365-mcp.git
+bash microsoft-365-mcp/install.sh
+```
+
+`install.sh` creates an isolated venv, installs dependencies, takes your
+Entra Application (client) ID (either interactively or via `M365_CLIENT_ID`
+in the environment), and registers the server with Claude Code. Safe to
+re-run. Then follow **[SETUP.md](SETUP.md)** for the Entra app (2 minutes
+with a shared team app, ~15 minutes solo) if you don't have a Client ID yet,
+and OAuth your accounts.
+
+<details>
+<summary>Manual install</summary>
+
 ```bash
 git clone https://github.com/adelaidasofia/microsoft-365-mcp.git
 cd microsoft-365-mcp
@@ -95,8 +112,7 @@ or user scope:
 claude mcp add -s user microsoft-365 python3 /absolute/path/to/microsoft-365-mcp/server.py
 ```
 
-Then follow **[SETUP.md](SETUP.md)** for the Entra app (2 minutes with a shared
-team app, ~15 minutes solo) and OAuth your accounts.
+</details>
 
 ## Config
 
