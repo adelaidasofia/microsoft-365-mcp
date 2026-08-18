@@ -20,7 +20,7 @@ works from any MCP client.
 - **Own-OAuth**: You (or your team) register a free Entra app; a corporate
   admin can allowlist a single Client ID. No third-party middleman touches mail.
 
-## Tools (v0.1, 33 tools)
+## Tools (v0.1, 35 tools)
 
 ### Account management (4)
 - `m365_account_add` — browser OAuth flow (or `method="device_code"` for headless)
@@ -28,7 +28,7 @@ works from any MCP client.
 - `m365_account_list` — list authorized accounts + default
 - `m365_account_remove` — remove local tokens (doesn't revoke Microsoft-side)
 
-### Outlook mail (9)
+### Outlook mail (11)
 - `outlook_search` — KQL search or folder listing. Compact response.
 - `outlook_read` — read one message or the whole conversation. Plain-text body.
 - `outlook_send` — send mail (supports `dry_run=True`)
@@ -38,6 +38,8 @@ works from any MCP client.
 - `outlook_move` — batch move to a folder (well-known names work: `archive`, `deleteditems`, ...)
 - `outlook_archive` — batch archive
 - `outlook_mark_read` — batch mark read/unread
+- `outlook_attachments_list` — list a message's attachments (filename, mime type, size)
+- `outlook_attachment_save` — download one attachment to a local file, path returned for direct reading
 
 ### Calendar (7)
 - `mscal_list_calendars` — list all calendars

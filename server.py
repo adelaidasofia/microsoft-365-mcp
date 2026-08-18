@@ -248,6 +248,32 @@ def outlook_mark_read(
     return mail_tools.mark_read(message_ids=message_ids, read=read, account=account)
 
 
+@_tool
+def outlook_attachments_list(message_id: str, account: str | None = None) -> list[dict]:
+    """List a message's attachments: filename, mime type, size, and the
+    attachment_id outlook_attachment_save needs. Metadata only, no download."""
+    return mail_tools.attachments_list(message_id=message_id, account=account)
+
+
+@_tool
+def outlook_attachment_save(
+    message_id: str,
+    attachment_id: str,
+    filename: str | None = None,
+    dest_dir: str | None = None,
+    account: str | None = None,
+) -> dict:
+    """Download one attachment to a local file and return its path, so the
+    caller can read it directly (PDF, image, docx, ...).
+
+    Call outlook_attachments_list first for attachment_id and filename. Saves
+    under ~/.claude/microsoft-365-mcp/downloads unless dest_dir is given."""
+    return mail_tools.attachment_save(
+        message_id=message_id, attachment_id=attachment_id,
+        filename=filename, dest_dir=dest_dir, account=account,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------
