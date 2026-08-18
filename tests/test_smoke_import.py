@@ -25,8 +25,8 @@ def test_all_tools_registered_with_schemas() -> None:
     import server
     tools = asyncio.run(server.mcp.list_tools())
     names = {t.name for t in tools}
-    assert len(names) == 33, f"expected 33 tools, got {len(names)}"
-    for family, expect in [("m365_account_", 4), ("outlook_", 9), ("mscal_", 7), ("onedrive_", 13)]:
+    assert len(names) == 35, f"expected 35 tools, got {len(names)}"
+    for family, expect in [("m365_account_", 4), ("outlook_", 11), ("mscal_", 7), ("onedrive_", 13)]:
         got = sum(1 for n in names if n.startswith(family))
         assert got == expect, f"{family}*: expected {expect}, got {got}"
     # The observability wrapper must not erase real parameter schemas.

@@ -13,6 +13,8 @@ Design rules (mirror google-workspace-mcp gmail_tools):
 
 from __future__ import annotations
 
+import base64
+from pathlib import Path
 from typing import Any
 
 import graph
@@ -260,3 +262,62 @@ def mark_read(message_ids: list[str], read: bool = True, account: str | None = N
             json_body={"isRead": read},
         )
     return {"count": len(message_ids), "read": read, "status": "updated"}
+
+
+_DOWNLOADS_DIR = Path.home() / ".claude" / "microsoft-365-mcp" / "downloads"
+_ATTACH_SELECT = "id,name,contentType,size,isInline"
+
+
+def attachments_list(message_id: str, account: str | None = None) -> list[dict]:
+    """List a message's attachments: filename, mime type, size, and the
+    attachment_id attachment_save needs. Metadata only — no bytes fetched."""
+    items = graph.get_all(
+        f"/me/messages/{message_id}/attachments",
+        account=account, params={"$select": _ATTACH_SELECT}, limit=50,
+    )
+    return [
+        {
+            "attachment_id": a["id"],
+            "filename": a.get("name", ""),
+            "mime_type": a.get("contentType", "application/octet-stream"),
+            "size": a.get("size", 0),
+            "inline": a.get("isInline", False),
+        }
+        for a in items
+    ]
+
+
+def attachment_save(
+    message_id: str,
+    attachment_id: str,
+    filename: str | None = None,
+    dest_dir: str | None = None,
+    account: str | None = None,
+) -> dict:
+    """Download one attachment to a local file and return its path.
+
+    Call attachments_list first for attachment_id and the original filename.
+    Saves under ~/.claude/microsoft-365-mcp/downloads by default; pass
+    dest_dir to save elsewhere. The returned path can be read directly (PDF,
+    image, docx, ...) — this tool does not parse the content, only fetches it.
+    """
+    meta = graph.request(
+        "GET", f"/me/messages/{message_id}/attachments/{attachment_id}",
+        account=account, params={"$select": "name,contentType,contentBytes,size"},
+    )
+    content_bytes = meta.get("contentBytes")
+    if content_bytes is not None:
+        raw = base64.b64decode(content_bytes)
+    else:
+        # Graph omits contentBytes above ~3 MB — read the raw stream instead.
+        raw = graph.request(
+            "GET", f"/me/messages/{message_id}/attachments/{attachment_id}/$value",
+            account=account, raw=True,
+        )
+
+    out_dir = Path(dest_dir) if dest_dir else _DOWNLOADS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    name = filename or meta.get("name") or f"attachment-{attachment_id[:8]}"
+    path = out_dir / name
+    path.write_bytes(raw)
+    return {"path": str(path), "filename": name, "bytes": len(raw)}
