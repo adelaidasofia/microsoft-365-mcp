@@ -90,3 +90,28 @@ def test_attachment_save_falls_back_to_placeholder_name_with_no_name_anywhere(
     result = mail_tools.attachment_save("MSG1", "AAId9", dest_dir=str(tmp_path))
     assert result["filename"] == "attachment-AAId9"
     assert (tmp_path / "attachment-AAId9").read_bytes() == raw
+
+
+def test_attachment_save_does_not_select_content_bytes(fake_graph, tmp_path):
+    """The attachment fetch must go out with NO $select.
+
+    contentBytes is declared on microsoft.graph.fileAttachment, but
+    /messages/{id}/attachments/{id} resolves to the microsoft.graph.attachment
+    base type. Naming contentBytes in $select therefore fails the whole request
+    against real Graph with 400 "Could not find a property named 'contentBytes'
+    on type 'microsoft.graph.attachment'" — every download, every mailbox.
+
+    FakeGraph ignores params, so no behavioural test in this file can catch
+    that: the shipped code passed all of them while being unable to download a
+    single attachment. This asserts on the request that was actually made.
+    """
+    raw = b"%PDF-1.4 fake"
+    fake_graph.queue(
+        "GET", "/me/messages/MSG1/attachments/AAId1",
+        {"name": "invoice.pdf", "contentBytes": base64.b64encode(raw).decode()},
+    )
+    mail_tools.attachment_save("MSG1", "AAId1", dest_dir=str(tmp_path))
+
+    fetch = next(c for c in fake_graph.calls
+                 if c["path"] == "/me/messages/MSG1/attachments/AAId1")
+    assert "$select" not in (fetch["params"] or {})

@@ -301,9 +301,15 @@ def attachment_save(
     dest_dir to save elsewhere. The returned path can be read directly (PDF,
     image, docx, ...) — this tool does not parse the content, only fetches it.
     """
+    # No $select here. contentBytes is declared on microsoft.graph.fileAttachment,
+    # not on the microsoft.graph.attachment base type this path resolves to, so
+    # naming it in $select fails the WHOLE request before Graph ever looks at the
+    # attachment: 400 "Could not find a property named 'contentBytes' on type
+    # 'microsoft.graph.attachment'". Fetching the resource plain returns the full
+    # fileAttachment, contentBytes included.
     meta = graph.request(
         "GET", f"/me/messages/{message_id}/attachments/{attachment_id}",
-        account=account, params={"$select": "name,contentType,contentBytes,size"},
+        account=account,
     )
     content_bytes = meta.get("contentBytes")
     if content_bytes is not None:
