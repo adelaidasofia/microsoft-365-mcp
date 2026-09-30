@@ -1,26 +1,23 @@
-# Guided setup: connecting someone's Outlook through Claude
+# Guided setup with Claude Code and Claude in Chrome
 
-**Who this is for.** An AI assistant (Claude Code, or any agent that can run a terminal) that was handed this repository's link by a person who wants their Outlook mail, Calendar and OneDrive connected. Assume the person is not technical and may not read English. If you are a person setting this up by hand, [SETUP.md](SETUP.md) is the full manual.
+This is the setup path for someone who wants Claude to connect their Outlook mail, Calendar and OneDrive for them. Claude Code runs the terminal steps. Claude in Chrome (the Claude extension for Google Chrome, [claude.com/chrome](https://claude.com/chrome)) does any browser steps. The person does three things: pastes the browser messages into Claude in Chrome, types their own password when a page asks for it, and restarts Claude when told. [SETUP.md](SETUP.md) is the full manual for doing it by hand.
 
-The person's side of this is three things: paste messages you give them into Claude in Chrome, type their own password when a page asks for it, and restart Claude when you tell them to. Everything else is yours.
+## How the session goes
 
-## How to run it
-
-- **Talk in the person's language.** Reply in the language they wrote in. Short sentences, no jargon, one step at a time.
-- **You do everything in the terminal.** Never ask the person to type a command, edit a file, or open Terminal. When a command needs their approval, say in one plain sentence what it does.
-- **Anything in a web browser goes to Claude in Chrome** (the Claude extension for Google Chrome, [claude.com/chrome](https://claude.com/chrome)). Give the person ONE message to paste there, introduced with the line "Copy this and paste it into Claude in Chrome:" in their language, followed by one line saying what to bring back to you.
-- **Passwords and authenticator codes are theirs.** Never ask for them. Every message you write for Claude in Chrome must say: if a page asks for my password or a code, stop and let me type it.
-- **Tell them early:** keep this window open until I say we are done. The setup is lost if they close the session halfway.
-- **Stay on this connector.** The person chose this repository; do not steer them to a different Microsoft connector.
+- In the person's language: short sentences, no jargon, one step at a time.
+- Claude Code runs every terminal step. The person never types a command, edits a file or opens Terminal. When a command needs their approval, one plain sentence says what it does.
+- Each browser task is one message for the person to paste into Claude in Chrome, introduced with "Copy this and paste it into Claude in Chrome:" and followed by one line saying what to bring back.
+- Passwords and authenticator codes are always typed by the person and never shared. Every browser message says to stop at a password or code field and let the person type it.
+- The person keeps the Claude Code window open until setup is finished. Closing it halfway loses the progress.
 
 ## Which Microsoft app
 
 The connector signs in through a Microsoft Entra app, identified by its **Application (client) ID** (a GUID like `1a2b3c4d-5e6f-7890-abcd-ef1234567890`).
 
-- **They gave you an ID** (their program, team or company registered the app): use it. This is the normal path and needs no Microsoft portal at all.
-- **They did not:** ask one question, whether their program or company gave them an app ID. If not, they need their own app registration (SETUP.md, sections 1 to 3), which Claude in Chrome can do for them in the Entra admin center. This works with a work or school account. A personal outlook.com, hotmail.com or live.com account cannot create one: Microsoft requires a directory for new app registrations, and personal accounts do not have one. Those people need an ID from a program or team.
+- **The person has an ID** (their program, team or company registered the app): that ID is used. This is the normal path and needs no Microsoft portal at all.
+- **The person has no ID:** the one question worth asking is whether their program or company gave them one. If not, they need their own app registration (SETUP.md, sections 1 to 3), which Claude in Chrome can do for them in the Entra admin center. This works with a work or school account. A personal outlook.com, hotmail.com or live.com account cannot create one: Microsoft requires a directory for new app registrations, and personal accounts do not have one. Those people need an ID from a program or team.
 
-## Why this is safe (so you can reassure, not alarm)
+## Security model
 
 - The app ID is a public identifier, not a secret. There is no app secret at all: this is a public desktop client.
 - Each person signs in with their own account and gets their own tokens, stored on their own computer. The app grants no access to anyone else's mailbox.
@@ -28,7 +25,7 @@ The connector signs in through a Microsoft Entra app, identified by its **Applic
 
 ## Steps
 
-### 1. Get the code (you)
+### 1. Get the code (Claude Code)
 
 ```bash
 cd ~ && if [ -d microsoft-365-mcp/.git ]; then git -C microsoft-365-mcp pull --ff-only; else git clone https://github.com/adelaidasofia/microsoft-365-mcp.git; fi
@@ -36,7 +33,7 @@ cd ~ && if [ -d microsoft-365-mcp/.git ]; then git -C microsoft-365-mcp pull --f
 
 On Windows, see [Windows](#windows) below.
 
-### 2. Install (you)
+### 2. Install (Claude Code)
 
 ```bash
 M365_CLIENT_ID='<application client id>' bash ~/microsoft-365-mcp/install.sh
@@ -44,7 +41,7 @@ M365_CLIENT_ID='<application client id>' bash ~/microsoft-365-mcp/install.sh
 
 With the ID set, the installer asks no questions: it builds its own environment, installs dependencies, checks the ID's shape and registers the connector with Claude Code.
 
-If it stops with "Claude Code is not installed" while you are running inside the Claude desktop app, put the app's own copy of Claude Code on `PATH` and run it again:
+If it stops with "Claude Code is not installed" when Claude Code is running inside the Claude desktop app, the fix is to put the app's own copy of Claude Code on `PATH` and run it again:
 
 ```bash
 PATH="$(dirname "$CLAUDE_CODE_EXECPATH"):$PATH" M365_CLIENT_ID='<application client id>' bash ~/microsoft-365-mcp/install.sh
@@ -52,7 +49,7 @@ PATH="$(dirname "$CLAUDE_CODE_EXECPATH"):$PATH" M365_CLIENT_ID='<application cli
 
 ### 3. Restart and connect their account (the person, helped by Claude in Chrome)
 
-A running Claude only loads new connectors when it starts. Before they restart, tell them all of this, because the next session will not have this context:
+A running Claude only loads new connectors when it starts. The next session will not have this context, so the person hears all of this before restarting:
 
 1. Quit Claude completely (Cmd + Q on a Mac) and open it again.
 2. Send: "Connect my Outlook account and show me my last 5 emails." (in their language)
