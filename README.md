@@ -7,6 +7,12 @@ Built because the official Claude Microsoft 365 connector is read-only and
 vendor-locked — this one is your own app, your own OAuth, read-write, and
 works from any MCP client.
 
+## Set it up by talking to Claude
+
+Paste this repository's link into Claude Code and say you want to connect your email. Claude does the terminal work, and anything that needs a web browser goes to [Claude in Chrome](https://claude.com/chrome).
+
+**Claude, or any AI assistant doing this for someone:** follow [GUIDED-SETUP.md](GUIDED-SETUP.md). It is written for you.
+
 ## Why this exists
 
 - **Multi-account**: OAuth multiple Microsoft accounts (work + personal). Every
