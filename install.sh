@@ -75,10 +75,25 @@ PY_OK=$(python3 -c 'import sys; print(1 if sys.version_info[:2] >= (3,10) else 0
    Install a newer Python from python.org, then run this script again."
 ok "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])')"
 
-command -v claude >/dev/null 2>&1 || die \
+# Two ways to reach Claude Code: on PATH (the common case), or via
+# CLAUDE_CODE_EXECPATH when this script is run from inside the Claude desktop
+# app's own Code tab, which bundles its own Claude Code binary and exports
+# that variable to point at it -- often without ever putting `claude` on PATH.
+CLAUDE_BIN=""
+if command -v claude >/dev/null 2>&1; then
+  CLAUDE_BIN="claude"
+  ok "claude"
+elif [ -n "${CLAUDE_CODE_EXECPATH:-}" ] && [ -f "$CLAUDE_CODE_EXECPATH" ] && [ -x "$CLAUDE_CODE_EXECPATH" ]; then
+  EXECPATH_VERSION="$("$CLAUDE_CODE_EXECPATH" --version 2>/dev/null || true)"
+  if printf '%s' "$EXECPATH_VERSION" | grep -q "Claude Code"; then
+    CLAUDE_BIN="$CLAUDE_CODE_EXECPATH"
+    ok "using the copy of Claude Code the Claude desktop app runs"
+  fi
+fi
+
+[ -n "$CLAUDE_BIN" ] || die \
 "Claude Code is not installed, or its 'claude' command is not on your PATH.
    Install Claude Code first, quit and reopen Terminal, then run this again."
-ok "claude"
 
 [ -f "$SCRIPT_DIR/server.py" ] || die \
 "This script is not sitting next to server.py, so the clone looks incomplete.
@@ -161,9 +176,9 @@ step "Connecting it to Claude Code"
 # Re-running should heal a bad value rather than fail on "already exists". The
 # remove is unconditional and its failure ignored, so this does not depend on
 # parsing `claude mcp list` output, which is a display format, not a contract.
-claude mcp remove "$SERVER_NAME" -s user >/dev/null 2>&1 || true
+"$CLAUDE_BIN" mcp remove "$SERVER_NAME" -s user >/dev/null 2>&1 || true
 
-claude mcp add "$SERVER_NAME" -s user \
+"$CLAUDE_BIN" mcp add "$SERVER_NAME" -s user \
   -e "M365_CLIENT_ID=$CLIENT_ID" \
   -- "$VENV_PY" "$SCRIPT_DIR/server.py" >/dev/null || die \
 "Could not register the connector with Claude Code.
