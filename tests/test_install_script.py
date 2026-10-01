@@ -25,6 +25,7 @@ Subprocess calls pass argument lists, never shell strings.
 
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -168,18 +169,75 @@ def _box_env(box, **creds):
     return env
 
 
-def _run_installer(fx, env, *, shim_expected, stdin=""):
+def _default_signals() -> None:
+    """Run in the child before it execs: the signals the tests below send must be
+    ones the installer can die of. A pytest started under nohup, or as a job its
+    parent does not wait for, passes some of them on ignored, and an installer
+    that ignores SIGHUP is not one a HUP can be tested on."""
+    for name in ("SIGINT", "SIGHUP", "SIGTERM"):
+        signal.signal(getattr(signal, name), signal.SIG_DFL)
+
+
+def _run_until_interrupted(fx, env, signal_name, ready):
+    """Start install.sh in a process group of its own, wait until `ready()`, then
+    send that whole group `signal_name` and return what came of it.
+
+    The group, and not only the installer, is what a terminal sends Ctrl-C to and
+    what a closing window sends HUP to, so the binary the installer is waiting on
+    gets the signal too.
+    """
+    sig = getattr(signal, signal_name)
+    proc = subprocess.Popen(
+        [BASH, str(fx["repo"] / "install.sh")],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        start_new_session=True, preexec_fn=_default_signals,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while not ready():
+            assert proc.poll() is None, "the installer ended before it got to where it was to be interrupted"
+            assert time.monotonic() < deadline, "the installer never got to where it was to be interrupted"
+            time.sleep(0.02)
+        os.killpg(proc.pid, sig)
+        out, err = proc.communicate(timeout=30)
+    finally:
+        # Whatever happened above, nothing of this run may be left running. By now
+        # the group is usually gone, which is ProcessLookupError, or on macOS holds
+        # only zombies, which is PermissionError: both mean there is nothing to kill.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        proc.wait()
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+
+def _status_a_shell_reports(returncode: int) -> int:
+    """What `$?` is for a shell that ran the installer: 128 plus the number of the
+    signal that killed it, which Python reports as that number made negative."""
+    return 128 - returncode if returncode < 0 else returncode
+
+
+def _run_installer(fx, env, *, shim_expected, stdin="", interrupt=None):
     """The one place install.sh is started: the guard first, then the run.
 
-    Both runners below go through here, so a run cannot skip the guard by
+    Every runner below goes through here, so a run cannot skip the guard by
     forgetting it; test_every_runner_checks_the_guard_... shows that it cannot.
     `stdin` is what the installer is handed on its standard input.
+
+    `interrupt` is `(signal_name, ready)`: instead of waiting for the installer to
+    finish, send it that signal once `ready()` is true (see _run_until_interrupted).
+    Its standard input is then empty.
     """
     _assert_nothing_real_is_reachable(env, fx["root"], shim_expected=shim_expected)
-    proc = subprocess.run(
-        [BASH, str(fx["repo"] / "install.sh")],
-        capture_output=True, text=True, env=env, input=stdin, timeout=120,
-    )
+    if interrupt is not None:
+        assert not stdin, "an interrupted run is not handed any standard input"
+        proc = _run_until_interrupted(fx, env, *interrupt)
+    else:
+        proc = subprocess.run(
+            [BASH, str(fx["repo"] / "install.sh")],
+            capture_output=True, text=True, env=env, input=stdin, timeout=120,
+        )
     return proc, fx["log"].read_text()
 
 
@@ -325,15 +383,17 @@ def _desktop_shim(
 HANG_SECONDS = 60
 
 
-def _hanging_claude(path: Path) -> None:
+def _hanging_claude(path: Path, *, started: Path = None) -> None:
     """A binary that never answers --version (it sleeps for HANG_SECONDS).
 
     `exec`, so the binary is the sleeper itself. A wrapper that starts a child
     and leaves it holding the output open is a different case, with its own
-    stand-in below.
+    stand-in below. With `started`, it first writes that file, so a test can tell
+    when the installer is waiting on it.
     """
     sleeper = shutil.which("sleep")
-    _exe(path, f'#!/bin/sh\nexec "{sleeper}" {HANG_SECONDS}\n')
+    note = f'echo started > "{started}"\n' if started else ""
+    _exe(path, f'#!/bin/sh\n{note}exec "{sleeper}" {HANG_SECONDS}\n')
 
 
 def _claude_with_a_lingering_child(
@@ -434,6 +494,12 @@ def _hint_words(stderr: str) -> list:
 def _run_sealed(box, *, system_dirs=_SEALED_SYSTEM_DIRS, stdin="", **env_extra):
     env = _sealed_env(box, system_dirs=system_dirs, **env_extra)
     return _run_installer(box, env, shim_expected=False, stdin=stdin)
+
+
+def _run_sealed_interrupted(box, *, signal_name="SIGTERM", ready=lambda: True, **env_extra):
+    """`_run_sealed`, but the installer is sent `signal_name` once `ready()` is true."""
+    env = _sealed_env(box, **env_extra)
+    return _run_installer(box, env, shim_expected=False, interrupt=(signal_name, ready))
 
 
 def test_execpath_registers_when_claude_not_on_path(sealed_box):
@@ -820,6 +886,33 @@ def test_a_wrapper_whose_child_outlives_the_bound_is_still_cut_off_on_time(seale
     assert _probe_leftovers(sealed_box) == []
 
 
+@pytest.mark.parametrize("signal_name", ["SIGINT", "SIGHUP", "SIGTERM"])
+def test_a_signal_while_the_probe_waits_leaves_no_scratch_file(sealed_box, signal_name):
+    """Someone presses Ctrl-C, or closes the window, while the probe waits on a
+    binary that is not answering (ten seconds with perl, with no limit without
+    it). The installer ends as it always did, with the status a shell reports for
+    that signal, and the scratch file the probe was writing the answer to is not
+    left behind in TMPDIR.
+
+    The signal goes to the installer's whole process group, as a terminal sends
+    it, and only once the stand-in for the app's copy has started: the probe is
+    then certainly waiting on it, and has long since made its file."""
+    started = sealed_box["root"] / "claude-has-started.log"
+    execpath = sealed_box["root"] / "claude-hangs-when-asked"
+    _hanging_claude(execpath, started=started)
+
+    proc, calls = _run_sealed_interrupted(
+        sealed_box, signal_name=signal_name, ready=started.exists,
+        M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath),
+    )
+
+    assert _status_a_shell_reports(proc.returncode) == 128 + getattr(signal, signal_name), (
+        proc.returncode, proc.stdout, proc.stderr
+    )
+    assert "mcp add" not in calls
+    assert _probe_leftovers(sealed_box) == []
+
+
 # What install.sh needs on a PATH of its own. The version probe writes its answer
 # to a scratch file, so mktemp and rm are among them, and perl bounds it.
 _PROBE_TOOLS = ("git", "grep", "dirname", "cat", "mktemp", "rm", "perl")
@@ -1018,7 +1111,7 @@ def test_no_fixture_can_reach_a_real_claude(request, fixture_name, env_of, shim_
 
 @pytest.mark.parametrize(
     "fixture_name, runner",
-    [("box", _run), ("sealed_box", _run_sealed)],
+    [("box", _run), ("sealed_box", _run_sealed), ("sealed_box", _run_sealed_interrupted)],
 )
 def test_every_runner_checks_the_guard_before_it_starts_the_installer(
     request, monkeypatch, fixture_name, runner
