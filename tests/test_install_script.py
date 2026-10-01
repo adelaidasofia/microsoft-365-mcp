@@ -365,6 +365,27 @@ def _probe_leftovers(box) -> list:
     return sorted(p.name for p in (box["root"] / "tmp").glob("claude-probe.*"))
 
 
+def _hint_words(stderr: str) -> list:
+    """The words a real shell reads from the line the installer prints for
+    seeing why `mcp add` failed.
+
+    The line is for pasting, so the only honest check is to give it to a shell
+    and see what comes back; reading the quotes by eye would pass a line that
+    expands a `$` or runs a backtick. Whatever the quoting gets wrong shows up
+    here as a different word.
+    """
+    lines = stderr.splitlines()
+    marker = [i for i, ln in enumerate(lines) if "Run this to see the error" in ln]
+    assert marker, f"no hint in the installer's output: {stderr!r}"
+    hint = lines[marker[0] + 1].strip()
+    proc = subprocess.run(
+        [BASH, "-c", 'eval "set -- $1"; printf "%s\\0" "$@"', "bash", hint],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 0, f"the hint does not parse as shell words: {hint!r}\n{proc.stderr}"
+    return proc.stdout.split("\0")[:-1]
+
+
 def _run_sealed(box, *, system_dirs=_SEALED_SYSTEM_DIRS, **env_extra):
     env = _sealed_env(box, system_dirs=system_dirs, **env_extra)
     return _run_installer(box, env, shim_expected=False)
@@ -568,7 +589,35 @@ def test_a_failed_registration_names_the_binary_that_was_run(sealed_box):
 
     assert proc.returncode != 0
     assert "Could not register the connector" in proc.stderr, proc.stderr
-    assert f'"{execpath}" mcp add microsoft-365' in proc.stderr, proc.stderr
+    assert f"'{execpath}' mcp add microsoft-365" in proc.stderr, proc.stderr
+
+
+def test_the_failed_registration_hint_survives_an_odd_path(sealed_box):
+    """The hint is for pasting into a shell, and a path in it can hold anything a
+    filename can: spaces, quotes, a `$`, a backtick. Quoted wrongly, the pasted
+    line expands or runs something and starts a different command from the one
+    that failed. Every word read back has to be exactly what ran, the binary and
+    the interpreter and server paths alike."""
+    odd = "odd 'single' \"double\" $HOME `echo hi` ;&(x)"
+    desktop_dir = sealed_box["root"] / odd / "Application Support"
+    desktop_dir.mkdir(parents=True)
+    execpath = desktop_dir / "claude"
+    _desktop_shim(execpath, sealed_box["log"], reports_claude_code=True, add_exit=1)
+    # The clone lives under an odd path too, so $VENV_PY and $SCRIPT_DIR are covered.
+    repo = sealed_box["root"] / odd / "repo"
+    shutil.copytree(sealed_box["repo"], repo, symlinks=True)
+    sealed_box["repo"] = repo
+
+    proc, _ = _run_sealed(
+        sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath)
+    )
+
+    assert proc.returncode != 0
+    assert _hint_words(proc.stderr) == [
+        str(execpath), "mcp", "add", "microsoft-365", "-s", "user",
+        "-e", "M365_CLIENT_ID=...", "--",
+        str(repo / ".venv" / "bin" / "python"), str(repo / "server.py"),
+    ]
 
 
 def test_a_failed_registration_through_claude_on_path_still_says_claude(box):
@@ -580,6 +629,11 @@ def test_a_failed_registration_through_claude_on_path_still_says_claude(box):
 
     assert proc.returncode != 0
     assert "     claude mcp add microsoft-365" in proc.stderr, proc.stderr
+    assert _hint_words(proc.stderr) == [
+        "claude", "mcp", "add", "microsoft-365", "-s", "user",
+        "-e", "M365_CLIENT_ID=...", "--",
+        str(box["repo"] / ".venv" / "bin" / "python"), str(box["repo"] / "server.py"),
+    ]
 
 
 def test_path_claude_wins_over_execpath(box):
