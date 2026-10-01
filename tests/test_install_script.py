@@ -279,9 +279,12 @@ def _desktop_shim(
 ) -> None:
     """A recording stand-in for the binary CLAUDE_CODE_EXECPATH points at.
 
-    Answers --version first, like the real Claude Code binary would, then
-    falls through to the same call-recording behavior as the `claude` PATH
-    shim in `box`, so a test can assert what -- if anything -- it was asked
+    It records every call, --version included, and does so before it answers: a
+    test that needs to know whether the installer asked it anything at all (the
+    app's copy must not even be probed when `claude` is on PATH) can only see
+    that if the question itself is logged. After that it answers --version like
+    the real Claude Code binary would, and otherwise behaves like the `claude`
+    PATH shim in `box`, so a test can assert what -- if anything -- it was asked
     to do.
 
     `version_exit` and `version_on` shape how it answers --version (which stream
@@ -293,8 +296,8 @@ def _desktop_shim(
     _exe(
         path,
         f'#!/bin/sh\n'
-        f'if [ "$1" = "--version" ]; then echo "{version_line}"{to_stderr}; exit {version_exit}; fi\n'
         f'echo "$*" >> "{log}"\n'
+        f'if [ "$1" = "--version" ]; then echo "{version_line}"{to_stderr}; exit {version_exit}; fi\n'
         f'case "$2" in remove) exit 1 ;; add) exit {add_exit} ;; esac\n'
         f'exit 0\n',
     )
@@ -368,6 +371,8 @@ def test_execpath_registers_when_claude_not_on_path(sealed_box):
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
+    # The app's copy is asked what it is before it is used.
+    assert calls.splitlines()[0] == "--version", calls
     add = [ln for ln in calls.splitlines() if ln.startswith("mcp add")]
     assert len(add) == 1, f"expected one `mcp add`, got {calls!r}"
     argv = add[0]
@@ -578,6 +583,7 @@ def test_path_claude_wins_over_execpath(box):
 
     add = [ln for ln in calls.splitlines() if ln.startswith("mcp add")]
     assert len(add) == 1, f"expected one `mcp add`, got {calls!r}"
+    # Not even asked what it is: every call the shim gets is logged, --version too.
     assert execpath_log.read_text() == "", "the execpath shim must never be invoked when claude is on PATH"
 
 
