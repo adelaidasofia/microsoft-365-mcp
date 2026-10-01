@@ -75,6 +75,30 @@ PY_OK=$(python3 -c 'import sys; print(1 if sys.version_info[:2] >= (3,10) else 0
    Install a newer Python from python.org, then run this script again."
 ok "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])')"
 
+# Is the binary at $1 really Claude Code? Ask it, and trust only what it says.
+#
+# The answer is captured first and matched afterwards, never piped straight into
+# grep. Under `set -o pipefail` a binary that printed its banner and then exited
+# non-zero would fail the whole pipeline and be thrown out as "not Claude Code",
+# when what it said is the only thing being asked about. Both streams are read:
+# a banner printed only on stderr is still a banner.
+#
+# The asking is bounded to ten seconds: a binary that hangs on --version is cut
+# off there instead of hanging the installer. Stock macOS has no `timeout`, but
+# it does have perl, and perl's alarm survives the exec that follows it. Where
+# there is no perl the question is still asked, just unbounded, rather than not
+# asked.
+is_claude_code() { # is_claude_code <binary>
+  local said=""
+  if command -v perl >/dev/null 2>&1; then
+    said="$(perl -e 'alarm shift; exec @ARGV' 10 "$1" --version </dev/null 2>&1 || true)"
+  else
+    said="$("$1" --version </dev/null 2>&1 || true)"
+  fi
+  case "$said" in *"Claude Code"*) return 0 ;; esac
+  return 1
+}
+
 # Two ways to reach Claude Code: on PATH (the common case), or via
 # CLAUDE_CODE_EXECPATH when this script is run from inside the Claude desktop
 # app's own Code tab, which bundles its own Claude Code binary and exports
@@ -84,8 +108,7 @@ if command -v claude >/dev/null 2>&1; then
   CLAUDE_BIN="claude"
   ok "claude"
 elif [ -n "${CLAUDE_CODE_EXECPATH:-}" ] && [ -f "$CLAUDE_CODE_EXECPATH" ] && [ -x "$CLAUDE_CODE_EXECPATH" ]; then
-  EXECPATH_VERSION="$("$CLAUDE_CODE_EXECPATH" --version 2>/dev/null || true)"
-  if printf '%s' "$EXECPATH_VERSION" | grep -q "Claude Code"; then
+  if is_claude_code "$CLAUDE_CODE_EXECPATH"; then
     CLAUDE_BIN="$CLAUDE_CODE_EXECPATH"
     ok "using the copy of Claude Code the Claude desktop app runs"
   fi
@@ -178,12 +201,18 @@ step "Connecting it to Claude Code"
 # parsing `claude mcp list` output, which is a display format, not a contract.
 "$CLAUDE_BIN" mcp remove "$SERVER_NAME" -s user >/dev/null 2>&1 || true
 
+# If registering fails, the person is told what to run to see why. That has to be
+# the binary that was just run: the desktop app's copy is not on PATH, so a bare
+# `claude` would be a command that does not exist for them. Its path has spaces in
+# it ("Application Support"), so it is quoted so that it can be pasted as it is.
+if [ "$CLAUDE_BIN" = "claude" ]; then CLAUDE_CMD="claude"; else CLAUDE_CMD="\"$CLAUDE_BIN\""; fi
+
 "$CLAUDE_BIN" mcp add "$SERVER_NAME" -s user \
   -e "M365_CLIENT_ID=$CLIENT_ID" \
   -- "$VENV_PY" "$SCRIPT_DIR/server.py" >/dev/null || die \
 "Could not register the connector with Claude Code.
    Run this to see the error:
-     claude mcp add $SERVER_NAME -s user -e M365_CLIENT_ID=... -- $VENV_PY $SCRIPT_DIR/server.py"
+     $CLAUDE_CMD mcp add $SERVER_NAME -s user -e M365_CLIENT_ID=... -- $VENV_PY $SCRIPT_DIR/server.py"
 
 ok "registered as \"$SERVER_NAME\""
 
