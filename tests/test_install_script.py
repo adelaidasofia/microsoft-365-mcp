@@ -66,12 +66,17 @@ def _exe(path: Path, body: str) -> None:
 
 
 def _throwaway_config(root: Path) -> dict:
-    """HOME and CLAUDE_CONFIG_DIR for one installer run, both inside `root`."""
+    """HOME, CLAUDE_CONFIG_DIR and TMPDIR for one installer run, all inside `root`.
+
+    TMPDIR is not about Claude Code: it keeps the installer's own scratch files
+    inside the test's tmp dir too, where a test can see whether they are cleaned up.
+    """
     home = root / "home"
     config = root / "claude-config"
-    home.mkdir(exist_ok=True)
-    config.mkdir(exist_ok=True)
-    return {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(config)}
+    tmp = root / "tmp"
+    for d in (home, config, tmp):
+        d.mkdir(exist_ok=True)
+    return {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(config), "TMPDIR": str(tmp)}
 
 
 def _command_found_on(env: dict, name: str) -> str:
@@ -285,11 +290,47 @@ HANG_SECONDS = 60
 def _hanging_claude(path: Path) -> None:
     """A binary that never answers --version (it sleeps for HANG_SECONDS).
 
-    `exec`, so the process the installer's ten-second alarm kills is the sleeper
-    itself, not a shell that leaves a sleeping child holding the output pipe.
+    `exec`, so the binary is the sleeper itself. A wrapper that starts a child
+    and leaves it holding the output open is a different case, with its own
+    stand-in below.
     """
     sleeper = shutil.which("sleep")
     _exe(path, f'#!/bin/sh\nexec "{sleeper}" {HANG_SECONDS}\n')
+
+
+def _claude_with_a_lingering_child(path: Path, log: Path, *, answers: bool) -> None:
+    """A binary that starts a long-lived child when it is asked for its version.
+
+    The child inherits the binary's stdout and stderr and keeps them open for
+    HANG_SECONDS, as a wrapper script or a helper process that outlives its
+    parent does. With `answers` the binary prints its banner and exits at once:
+    it has said what it is, and only its child is slow. Without, it waits for the
+    child, so it cannot answer inside the installer's ten seconds. Either way the
+    installer must not wait for the child: a shell waits for the process it
+    started, not for everything that inherited the output it was given.
+    """
+    sleeper = shutil.which("sleep")
+    if answers:
+        version = f'  echo "2.1.281 (Claude Code)"\n  "{sleeper}" {HANG_SECONDS} &\n  exit 0\n'
+    else:
+        version = f'  "{sleeper}" {HANG_SECONDS} &\n  wait\n  echo "2.1.281 (Claude Code)"\n  exit 0\n'
+    _exe(
+        path,
+        f"""#!/bin/sh
+echo "$*" >> "{log}"
+if [ "$1" = "--version" ]; then
+{version}fi
+case "$2" in
+  remove) exit 1 ;;
+esac
+exit 0
+""",
+    )
+
+
+def _probe_leftovers(box) -> list:
+    """Scratch files the version probe left behind in the run's TMPDIR."""
+    return sorted(p.name for p in (box["root"] / "tmp").glob("claude-probe.*"))
 
 
 def _run_sealed(box, *, system_dirs=_SEALED_SYSTEM_DIRS, **env_extra):
@@ -410,13 +451,63 @@ def test_execpath_that_hangs_on_version_is_given_up_on(sealed_box):
     assert "Claude Code is not installed" in proc.stdout + proc.stderr
 
 
+def test_a_child_that_keeps_the_output_open_does_not_stretch_the_wait(sealed_box):
+    """The binary answered and exited; a helper it started still holds the output
+    it was given. The installer waits for the binary it ran, not for everything
+    that inherited the output, so the answer is used at once."""
+    execpath = sealed_box["root"] / "claude-leaves-a-child"
+    _claude_with_a_lingering_child(execpath, sealed_box["log"], answers=True)
+
+    started = time.monotonic()
+    proc, calls = _run_sealed(
+        sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath)
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < HANG_SECONDS - 20, (
+        f"the installer waited for a child of the binary it asked: it took {elapsed:.0f}s, "
+        f"and the child lives for {HANG_SECONDS}s"
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "mcp add microsoft-365" in calls
+    assert _probe_leftovers(sealed_box) == []
+
+
+def test_a_wrapper_whose_child_outlives_the_bound_is_still_cut_off_on_time(sealed_box):
+    """The ten second bound has to hold for a binary that is a wrapper around a
+    child it waits for. The alarm ends the wrapper; whatever the child still has
+    open must not stretch the wait past it."""
+    execpath = sealed_box["root"] / "claude-wrapper"
+    _claude_with_a_lingering_child(execpath, sealed_box["log"], answers=False)
+    env = _sealed_env(sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath))
+    if not _command_found_on(env, "perl"):
+        pytest.skip("no perl on the sealed PATH, so there is no bound to test")
+
+    started = time.monotonic()
+    proc, calls = _run_sealed(
+        sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath)
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < HANG_SECONDS - 20, (
+        f"the --version probe was not bounded: the installer took {elapsed:.0f}s "
+        f"against a wrapper whose child lives for {HANG_SECONDS}s"
+    )
+    assert proc.returncode != 0
+    assert "mcp add" not in calls
+    assert "Claude Code is not installed" in proc.stdout + proc.stderr
+    assert _probe_leftovers(sealed_box) == []
+
+
 def test_execpath_is_still_used_where_perl_is_missing(sealed_box):
     """The ten-second bound needs perl. Without it the question is asked
     unbounded rather than not asked: no perl must never mean no fallback."""
-    # A PATH of its own: just the few tools install.sh needs, and not perl.
+    # A PATH of its own: just the few tools install.sh needs, and not perl. The
+    # version probe writes its answer to a scratch file, so mktemp and rm are among
+    # them: the point is the probe without perl, not the probe without its tools.
     tools = sealed_box["root"] / "tools"
     tools.mkdir()
-    for name in ("git", "grep", "dirname", "cat"):
+    for name in ("git", "grep", "dirname", "cat", "mktemp", "rm"):
         real = shutil.which(name)
         if real is None:
             pytest.skip(f"{name} unavailable, cannot build a PATH without perl")
