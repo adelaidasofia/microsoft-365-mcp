@@ -638,16 +638,24 @@ def test_a_wrapper_whose_child_outlives_the_bound_is_still_cut_off_on_time(seale
     assert _probe_leftovers(sealed_box) == []
 
 
-def _tools_without_perl(box) -> Path:
-    """A directory of just the few tools install.sh needs, and not perl. The
-    version probe writes its answer to a scratch file, so mktemp and rm are among
-    them: the point is the probe without perl, not the probe without its tools."""
-    tools = box["root"] / "tools"
+# What install.sh needs on a PATH of its own. The version probe writes its answer
+# to a scratch file, so mktemp and rm are among them, and perl bounds it.
+_PROBE_TOOLS = ("git", "grep", "dirname", "cat", "mktemp", "rm", "perl")
+
+
+def _tools_without(box, left_out: str) -> Path:
+    """A directory of just the few tools install.sh needs, and not `left_out`:
+    the point is the probe without that one tool, not the probe without the rest."""
+    tools = box["root"] / f"tools-without-{left_out}"
     tools.mkdir(exist_ok=True)
-    for name in ("git", "grep", "dirname", "cat", "mktemp", "rm"):
+    for name in _PROBE_TOOLS:
+        if name == left_out:
+            continue
         real = shutil.which(name)
         if real is None:
-            pytest.skip(f"{name} unavailable, cannot build a PATH without perl")
+            if name == "perl":
+                continue  # a host with no perl has none to link, which suits a test without it
+            pytest.skip(f"{name} unavailable, cannot build a PATH without {left_out}")
         if not (tools / name).exists():
             (tools / name).symlink_to(real)
     return tools
@@ -678,7 +686,7 @@ exit 0
         if not _command_found_on(_sealed_env(sealed_box, system_dirs=system_dirs, **extra), "perl"):
             pytest.skip("no perl on the sealed PATH, so there is no bounded way of asking to pin")
     else:
-        system_dirs = (str(_tools_without_perl(sealed_box)),)
+        system_dirs = (str(_tools_without(sealed_box, "perl")),)
 
     proc, _ = _run_sealed(sealed_box, system_dirs=system_dirs, stdin="typed by the person\n", **extra)
 
@@ -691,12 +699,29 @@ def test_execpath_is_still_used_where_perl_is_missing(sealed_box):
     """The ten-second bound needs perl. Without it the question is asked
     unbounded rather than not asked: no perl must never mean no fallback."""
     # A PATH of its own: the few tools install.sh needs, and not perl.
-    tools = _tools_without_perl(sealed_box)
+    tools = _tools_without(sealed_box, "perl")
     execpath = sealed_box["root"] / "claude"
     _desktop_shim(execpath, sealed_box["log"], reports_claude_code=True)
     extra = {"M365_CLIENT_ID": CLIENT_ID, "CLAUDE_CODE_EXECPATH": str(execpath)}
     # Control: this PATH really has no perl, so the unbounded branch is the one that runs.
     assert _command_found_on(_sealed_env(sealed_box, system_dirs=(str(tools),), **extra), "perl") == ""
+
+    proc, calls = _run_sealed(sealed_box, system_dirs=(str(tools),), **extra)
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "mcp add microsoft-365" in calls
+
+
+def test_execpath_is_still_used_where_mktemp_is_missing(sealed_box):
+    """The probe writes its answer to a scratch file, but a missing or unusable
+    mktemp must not mean a refused Claude Code: it falls back to reading the
+    answer through $(...), slower to give up on a child but still asked."""
+    tools = _tools_without(sealed_box, "mktemp")
+    execpath = sealed_box["root"] / "claude"
+    _desktop_shim(execpath, sealed_box["log"], reports_claude_code=True)
+    extra = {"M365_CLIENT_ID": CLIENT_ID, "CLAUDE_CODE_EXECPATH": str(execpath)}
+    # Control: this PATH really has no mktemp, so the fallback is the branch that runs.
+    assert _command_found_on(_sealed_env(sealed_box, system_dirs=(str(tools),), **extra), "mktemp") == ""
 
     proc, calls = _run_sealed(sealed_box, system_dirs=(str(tools),), **extra)
 
