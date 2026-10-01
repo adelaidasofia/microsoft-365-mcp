@@ -167,16 +167,17 @@ def _box_env(box, **creds):
     return env
 
 
-def _run_installer(fx, env, *, shim_expected):
+def _run_installer(fx, env, *, shim_expected, stdin=""):
     """The one place install.sh is started: the guard first, then the run.
 
     Both runners below go through here, so a run cannot skip the guard by
     forgetting it; test_every_runner_checks_the_guard_... shows that it cannot.
+    `stdin` is what the installer is handed on its standard input.
     """
     _assert_nothing_real_is_reachable(env, fx["root"], shim_expected=shim_expected)
     proc = subprocess.run(
         [BASH, str(fx["repo"] / "install.sh")],
-        capture_output=True, text=True, env=env, input="", timeout=120,
+        capture_output=True, text=True, env=env, input=stdin, timeout=120,
     )
     return proc, fx["log"].read_text()
 
@@ -390,9 +391,9 @@ def _hint_words(stderr: str) -> list:
     return proc.stdout.split("\0")[:-1]
 
 
-def _run_sealed(box, *, system_dirs=_SEALED_SYSTEM_DIRS, **env_extra):
+def _run_sealed(box, *, system_dirs=_SEALED_SYSTEM_DIRS, stdin="", **env_extra):
     env = _sealed_env(box, system_dirs=system_dirs, **env_extra)
-    return _run_installer(box, env, shim_expected=False)
+    return _run_installer(box, env, shim_expected=False, stdin=stdin)
 
 
 def test_execpath_registers_when_claude_not_on_path(sealed_box):
@@ -608,19 +609,60 @@ def test_a_wrapper_whose_child_outlives_the_bound_is_still_cut_off_on_time(seale
     assert _probe_leftovers(sealed_box) == []
 
 
-def test_execpath_is_still_used_where_perl_is_missing(sealed_box):
-    """The ten-second bound needs perl. Without it the question is asked
-    unbounded rather than not asked: no perl must never mean no fallback."""
-    # A PATH of its own: just the few tools install.sh needs, and not perl. The
-    # version probe writes its answer to a scratch file, so mktemp and rm are among
-    # them: the point is the probe without perl, not the probe without its tools.
-    tools = sealed_box["root"] / "tools"
-    tools.mkdir()
+def _tools_without_perl(box) -> Path:
+    """A directory of just the few tools install.sh needs, and not perl. The
+    version probe writes its answer to a scratch file, so mktemp and rm are among
+    them: the point is the probe without perl, not the probe without its tools."""
+    tools = box["root"] / "tools"
+    tools.mkdir(exist_ok=True)
     for name in ("git", "grep", "dirname", "cat", "mktemp", "rm"):
         real = shutil.which(name)
         if real is None:
             pytest.skip(f"{name} unavailable, cannot build a PATH without perl")
-        (tools / name).symlink_to(real)
+        if not (tools / name).exists():
+            (tools / name).symlink_to(real)
+    return tools
+
+
+@pytest.mark.parametrize("with_perl", [True, False], ids=["bounded-by-perl", "unbounded-without-perl"])
+def test_the_version_probe_never_reads_the_installers_stdin(sealed_box, with_perl):
+    """The installer's stdin can be a terminal, or the script itself when it is
+    piped in. The binary asked for its version must not be handed it: one that
+    reads its stdin would swallow whatever is waiting there. Both ways of asking
+    are pinned, the one bounded by perl and the one that is not."""
+    seen = sealed_box["root"] / "stdin-seen-by-claude.log"
+    execpath = sealed_box["root"] / "claude-reads-stdin"
+    _exe(
+        execpath,
+        f"""#!/bin/sh
+if [ "$1" = "--version" ]; then
+  cat > "{seen}"
+  echo "2.1.281 (Claude Code)"
+  exit 0
+fi
+exit 0
+""",
+    )
+    extra = {"M365_CLIENT_ID": CLIENT_ID, "CLAUDE_CODE_EXECPATH": str(execpath)}
+    if with_perl:
+        system_dirs = _SEALED_SYSTEM_DIRS
+        if not _command_found_on(_sealed_env(sealed_box, system_dirs=system_dirs, **extra), "perl"):
+            pytest.skip("no perl on the sealed PATH, so there is no bounded way of asking to pin")
+    else:
+        system_dirs = (str(_tools_without_perl(sealed_box)),)
+
+    proc, _ = _run_sealed(sealed_box, system_dirs=system_dirs, stdin="typed by the person\n", **extra)
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert seen.exists(), "the stand-in was never asked for its version"
+    assert seen.read_text() == "", "the version probe was handed the installer's stdin"
+
+
+def test_execpath_is_still_used_where_perl_is_missing(sealed_box):
+    """The ten-second bound needs perl. Without it the question is asked
+    unbounded rather than not asked: no perl must never mean no fallback."""
+    # A PATH of its own: the few tools install.sh needs, and not perl.
+    tools = _tools_without_perl(sealed_box)
     execpath = sealed_box["root"] / "claude"
     _desktop_shim(execpath, sealed_box["log"], reports_claude_code=True)
     extra = {"M365_CLIENT_ID": CLIENT_ID, "CLAUDE_CODE_EXECPATH": str(execpath)}
