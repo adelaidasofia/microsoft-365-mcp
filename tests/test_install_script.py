@@ -370,6 +370,16 @@ def _probe_leftovers(box) -> list:
     return sorted(p.name for p in (box["root"] / "tmp").glob("claude-probe.*"))
 
 
+def _assert_the_app_copy_was_refused(proc, execpath) -> None:
+    """The app's copy of Claude Code was found and could not be used. That is
+    different news from Claude Code being absent, and the message must not tell
+    the person it is not installed: it has to name the variable and the path
+    that was refused, so they can see what to fix."""
+    assert "not installed" not in proc.stderr, proc.stderr
+    assert "CLAUDE_CODE_EXECPATH" in proc.stderr, proc.stderr
+    assert str(execpath) in proc.stderr, proc.stderr
+
+
 def _hint_words(stderr: str) -> list:
     """The words a real shell reads from the line the installer prints for
     seeing why `mcp add` failed.
@@ -425,12 +435,31 @@ def test_execpath_registers_when_claude_not_on_path(sealed_box):
     assert "mcp remove microsoft-365 -s user" in calls
 
 
-def test_no_claude_anywhere_dies_loudly(sealed_box):
-    """Negative control: neither PATH nor CLAUDE_CODE_EXECPATH has anything."""
-    proc, calls = _run_sealed(sealed_box, M365_CLIENT_ID=CLIENT_ID)
+@pytest.mark.parametrize("env", [{}, {"CLAUDE_CODE_EXECPATH": ""}], ids=["unset", "empty"])
+def test_no_claude_anywhere_dies_loudly(sealed_box, env):
+    """Negative control: neither PATH nor CLAUDE_CODE_EXECPATH has anything. An
+    empty CLAUDE_CODE_EXECPATH is no more a refused copy than an unset one."""
+    proc, calls = _run_sealed(sealed_box, M365_CLIENT_ID=CLIENT_ID, **env)
     assert proc.returncode != 0
     assert "Claude Code is not installed" in proc.stdout + proc.stderr
     assert "mcp add" not in calls
+
+
+@pytest.mark.parametrize("kind", ["missing", "not-executable"])
+def test_an_execpath_that_cannot_be_run_is_named_in_the_message(sealed_box, kind):
+    """A stale CLAUDE_CODE_EXECPATH, or one that points at a file that is not
+    executable, is refused without being run, and the message says which."""
+    execpath = sealed_box["root"] / "claude-gone"
+    if kind == "not-executable":
+        execpath.write_text("#!/bin/sh\nexit 0\n")
+
+    proc, calls = _run_sealed(
+        sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath)
+    )
+
+    assert proc.returncode != 0
+    assert "mcp add" not in calls
+    _assert_the_app_copy_was_refused(proc, execpath)
 
 
 def test_execpath_binary_that_is_not_claude_code_is_rejected(sealed_box):
@@ -445,7 +474,7 @@ def test_execpath_binary_that_is_not_claude_code_is_rejected(sealed_box):
     )
     assert proc.returncode != 0, "must never trust an arbitrary binary's --version claim"
     assert "mcp add" not in calls
-    assert "Claude Code is not installed" in proc.stdout + proc.stderr
+    _assert_the_app_copy_was_refused(proc, impostor)
 
 
 @pytest.mark.parametrize(
@@ -476,7 +505,7 @@ def test_execpath_that_only_mentions_claude_code_is_rejected(sealed_box, said, o
 
     assert proc.returncode != 0, proc.stdout + proc.stderr
     assert "mcp add" not in calls
-    assert "Claude Code is not installed" in proc.stdout + proc.stderr
+    _assert_the_app_copy_was_refused(proc, execpath)
 
 
 def test_execpath_that_says_more_after_its_banner_is_still_used(sealed_box):
@@ -558,7 +587,7 @@ def test_execpath_that_hangs_on_version_is_given_up_on(sealed_box):
     )
     assert proc.returncode != 0
     assert "mcp add" not in calls
-    assert "Claude Code is not installed" in proc.stdout + proc.stderr
+    _assert_the_app_copy_was_refused(proc, execpath)
 
 
 def test_a_child_that_keeps_the_output_open_does_not_stretch_the_wait(sealed_box):
@@ -605,7 +634,7 @@ def test_a_wrapper_whose_child_outlives_the_bound_is_still_cut_off_on_time(seale
     )
     assert proc.returncode != 0
     assert "mcp add" not in calls
-    assert "Claude Code is not installed" in proc.stdout + proc.stderr
+    _assert_the_app_copy_was_refused(proc, execpath)
     assert _probe_leftovers(sealed_box) == []
 
 
