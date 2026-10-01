@@ -286,6 +286,7 @@ def _desktop_shim(
     log: Path,
     *,
     reports_claude_code: bool,
+    version_line: str = "",
     version_exit: int = 0,
     version_on: str = "stdout",
     add_exit: int = 0,
@@ -300,11 +301,14 @@ def _desktop_shim(
     PATH shim in `box`, so a test can assert what -- if anything -- it was asked
     to do.
 
-    `version_exit` and `version_on` shape how it answers --version (which stream
-    it prints on, and what it exits with afterwards); `add_exit` is what
-    `mcp add` exits with.
+    `version_line`, when given, is exactly what it prints for --version, in place
+    of the banner or the impostor line `reports_claude_code` picks. `version_exit`
+    and `version_on` shape how it answers --version (which stream it prints on,
+    and what it exits with afterwards); `add_exit` is what `mcp add` exits with.
     """
-    version_line = "2.1.281 (Claude Code)" if reports_claude_code else "impostor-tool 9.9.9"
+    version_line = version_line or (
+        "2.1.281 (Claude Code)" if reports_claude_code else "impostor-tool 9.9.9"
+    )
     to_stderr = " >&2" if version_on == "stderr" else ""
     _exe(
         path,
@@ -441,6 +445,61 @@ def test_execpath_binary_that_is_not_claude_code_is_rejected(sealed_box):
     assert proc.returncode != 0, "must never trust an arbitrary binary's --version claim"
     assert "mcp add" not in calls
     assert "Claude Code is not installed" in proc.stdout + proc.stderr
+
+
+@pytest.mark.parametrize(
+    "said, on, code",
+    [
+        # The shape the stub of a missing tool might print: it names Claude Code
+        # and is not Claude Code.
+        ("Claude Code is not installed on this machine", "stderr", 127),
+        ("Claude Code 2.1.281", "stdout", 0),
+        ("2.1.281 (Claude Code) is not installed here", "stdout", 0),
+        # More than a version in front of the suffix is not a version.
+        ("claude-code 2.1.281 (Claude Code)", "stdout", 0),
+    ],
+)
+def test_execpath_that_only_mentions_claude_code_is_rejected(sealed_box, said, on, code):
+    """What counts is the exact line `claude --version` prints, "<version>
+    (Claude Code)". An executable that merely mentions Claude Code, in an error
+    or in other words, is not it, and must not be registered with `mcp add`."""
+    execpath = sealed_box["root"] / "claude-in-name-only"
+    _desktop_shim(
+        execpath, sealed_box["log"], reports_claude_code=True,
+        version_line=said, version_exit=code, version_on=on,
+    )
+
+    proc, calls = _run_sealed(
+        sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath)
+    )
+
+    assert proc.returncode != 0, proc.stdout + proc.stderr
+    assert "mcp add" not in calls
+    assert "Claude Code is not installed" in proc.stdout + proc.stderr
+
+
+def test_execpath_that_says_more_after_its_banner_is_still_used(sealed_box):
+    """Only the first line is the banner; what follows it does not matter."""
+    execpath = sealed_box["root"] / "claude-says-more"
+    log = sealed_box["log"]
+    _exe(
+        execpath,
+        f"""#!/bin/sh
+echo "$*" >> "{log}"
+if [ "$1" = "--version" ]; then
+  printf '%s\\n%s\\n' "2.1.281 (Claude Code)" "a newer version is available"
+  exit 0
+fi
+exit 0
+""",
+    )
+
+    proc, calls = _run_sealed(
+        sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath)
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "mcp add microsoft-365" in calls
 
 
 def test_execpath_that_prints_its_banner_and_then_exits_non_zero_is_still_used(sealed_box):
