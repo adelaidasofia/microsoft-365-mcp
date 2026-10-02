@@ -41,7 +41,7 @@ M365_CLIENT_ID='<application client id>' bash ~/microsoft-365-mcp/install.sh
 
 With the ID set, the installer asks no questions: it builds its own environment, installs dependencies, checks the ID's shape and registers the connector with Claude Code.
 
-If it stops with "Claude Code is not installed" when Claude Code is running inside the Claude desktop app, the fix is to put the app's own copy of Claude Code on `PATH` and run it again:
+Inside the Claude desktop app the installer finds the app's own copy of Claude Code by itself. If it still stops, with a message that names `CLAUDE_CODE_EXECPATH`, it could not confirm that copy. Put the app's own copy of Claude Code on `PATH` and run it again; the installer uses a `claude` on `PATH` without that check:
 
 ```bash
 PATH="$(dirname "$CLAUDE_CODE_EXECPATH"):$PATH" M365_CLIENT_ID='<application client id>' bash ~/microsoft-365-mcp/install.sh
