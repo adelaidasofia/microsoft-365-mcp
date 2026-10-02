@@ -917,6 +917,35 @@ def test_a_signal_while_the_probe_waits_leaves_no_scratch_file(sealed_box, signa
     assert _probe_leftovers(sealed_box) == []
 
 
+def test_a_file_that_takes_the_probes_scratch_name_later_is_left_alone(sealed_box):
+    """The EXIT trap removes whatever PROBE_OUT names, so once the probe has removed
+    its own file it has to forget the name: after that the name is not the
+    installer's, and a file somebody else puts under it survives however the
+    installer ends. A `mktemp` that always hands out the same name makes that reuse
+    certain; with the real one it would take a random name coming up twice."""
+    taken = sealed_box["root"] / "tmp" / "claude-probe.REUSED"
+    _exe(sealed_box["bin"] / "mktemp", f'#!/bin/sh\n: > "{taken}"\nprintf "%s\\n" "{taken}"\n')
+    execpath = sealed_box["root"] / "claude-app"
+    _exe(
+        execpath,
+        f"""#!/bin/sh
+echo "$*" >> "{sealed_box["log"]}"
+if [ "$1" = "--version" ]; then echo "2.1.281 (Claude Code)"; exit 0; fi
+case "$2" in
+  remove) exit 1 ;;
+  add) echo "somebody else's file" > "{taken}"; exit 0 ;;
+esac
+exit 0
+""",
+    )
+
+    proc, calls = _run_sealed(sealed_box, M365_CLIENT_ID=CLIENT_ID, CLAUDE_CODE_EXECPATH=str(execpath))
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "mcp add microsoft-365" in calls
+    assert taken.read_text() == "somebody else's file\n"
+
+
 # What install.sh needs on a PATH of its own. The version probe writes its answer
 # to a scratch file, so mktemp and rm are among them, and perl bounds it.
 _PROBE_TOOLS = ("git", "grep", "dirname", "cat", "mktemp", "rm", "perl")
